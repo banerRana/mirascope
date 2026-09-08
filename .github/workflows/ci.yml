@@ -1,0 +1,282 @@
+name: CI
+run-name: ${{ github.actor }} is running CI
+
+on:
+  push:
+    branches: [main, "release/*"]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      python: ${{ steps.changes.outputs.python }}
+      typescript: ${{ steps.changes.outputs.typescript }}
+      website: ${{ steps.changes.outputs.website }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v2
+        id: changes
+        with:
+          filters: |
+            python:
+              - 'python/**'
+              - '.github/workflows/ci.yml'
+            typescript:
+              - 'typescript/**'
+              - '.github/workflows/ci.yml'
+            website:
+              - 'website/**'
+              - '.github/workflows/ci.yml'
+
+  codespell:
+    name: Spell Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: codespell-project/actions-codespell@v2
+
+  python-lint:
+    name: Python Lint & Type Check
+    needs: changes
+    if: needs.changes.outputs.python == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: python
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-suffix: "lint"
+
+      - name: Install Python
+        run: uv python install 3.10
+
+      - name: Ensure `uv.lock` file up-to-date
+        run: uv lock --check
+
+      - name: Install all dependencies
+        run: uv sync --all-extras --dev
+
+      - name: Setup `bun`
+        uses: oven-sh/setup-bun@v2
+
+      - name: Verify examples match templates
+        run: |
+          bun run scripts/regenerate_examples.ts
+          git diff --exit-code examples/
+
+      - name: Verify gen_ai_types modules is up-to-date
+        run: |
+          uv run datamodel-codegen --input schemas/gen-ai --output mirascope/ops/_internal/instrumentation/gen_ai_types
+          git diff --exit-code mirascope/ops/_internal/instrumentation/gen_ai_types
+
+      - name: Verify EXTRA_IMPORTS is up-to-date
+        run: ./scripts/validate_extra_imports.sh
+
+      - name: Run `ruff`
+        run: uv run ruff check . && uv run ruff format --check .
+
+      - name: Run `pyright`
+        run: uv run pyright .
+
+      - name: Minimize `uv` cache
+        run: uv cache prune --ci
+
+  python-tests:
+    name: Python Tests (Python ${{ matrix.python-version }})
+    needs: changes
+    if: needs.changes.outputs.python == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: python
+    strategy:
+      fail-fast: false # See all results, even if one fails.
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup `uv`
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-suffix: "py${{ matrix.python-version }}"
+
+      - name: Install python ${{ matrix.python-version }}
+        run: |
+          uv python install ${{ matrix.python-version }}
+          echo "${{ matrix.python-version }}" > .python-version
+
+      - name: Install all dependencies
+        run: uv sync --all-extras --dev
+
+      - name: Run `pytest` with code coverage
+        run: uv run pytest --cov --cov-config=.coveragerc --cov-report=xml --cov-report=term-missing
+
+      - name: Minimize `uv` cache
+        run: uv cache prune --ci
+
+  typescript-lint:
+    name: TypeScript Lint & Type Check
+    needs: changes
+    if: needs.changes.outputs.typescript == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: typescript
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup `bun`
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run lint checks
+        run: bun run lint
+
+  typescript-tests:
+    name: TypeScript Tests
+    needs: changes
+    if: needs.changes.outputs.typescript == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: typescript
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup `bun`
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run `vitest` with code coverage
+        run: bun run test:coverage
+
+  typescript-runtime-tests:
+    name: TypeScript Runtime Tests
+    needs: changes
+    if: needs.changes.outputs.typescript == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: typescript
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup `bun`
+        uses: oven-sh/setup-bun@v2
+
+      - name: Setup `node`
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Setup `deno`
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build package
+        run: bun run build
+
+      - name: Test Node.js loader
+        run: node --import mirascope/loader tests/runtimes/transformer-test.ts
+
+      - name: Test Bun plugin
+        run: bun tests/runtimes/transformer-test.ts
+
+      - name: Test Deno compatibility
+        run: deno run --allow-read --allow-env --allow-net --node-modules-dir tests/runtimes/deno-test.ts
+
+  website-lint:
+    name: Website Lint & Type Check
+    needs: changes
+    if: needs.changes.outputs.website == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: website
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup `bun`
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run lint checks
+        run: bun run lint
+
+  website-tests:
+    name: Website Tests
+    needs: changes
+    if: needs.changes.outputs.website == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: website
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup `bun`
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run `vitest` with code coverage
+        run: bun run test:coverage
+
+  ci-success:
+    name: CI Success
+    needs:
+      [
+        codespell,
+        python-lint,
+        python-tests,
+        typescript-lint,
+        typescript-tests,
+        typescript-runtime-tests,
+        website-lint,
+        website-tests,
+      ]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Check all jobs
+        run: |
+          if [[ "${{ contains(needs.*.result, 'failure') }}" == "true" ]] || [[ "${{ contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
+            echo "One or more jobs failed or were cancelled"
+            exit 1
+          fi
+          echo "All CI checks passed!"

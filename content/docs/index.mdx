@@ -1,0 +1,59 @@
+---
+title: Welcome
+description: Welcome to the Mirascope documentation
+---
+
+# Welcome to Mirascope
+
+The complete toolkit for building LLM-powered applications.
+
+- **Provider-agnostic**: One API for OpenAI, Anthropic, Google, and more
+- **Observable by default**: Tracing, versioning, and analytics built-in
+- **Production-ready**: Tools, structured outputs, and reliable error handling
+
+## Get Started
+
+### 1. Install Mirascope
+
+<TabbedSection>
+<Tab value="uv">
+```bash
+uv add "mirascope[all]"
+```
+</Tab>
+<Tab value="pip">
+```bash
+pip install "mirascope[all]"
+```
+</Tab>
+</TabbedSection>
+
+### 2. Set your provider API key
+
+```bash
+export OPENAI_API_KEY="your-api-key"
+```
+
+<Info>
+See [Providers](/docs/learn/llm/providers) for configuration of other providers (Anthropic, Google, etc.).
+</Info>
+
+## Your First Agent
+
+Here's a complete agent that uses tools, tracing, and versioning:
+
+<CodeExample file="python/examples/intro/welcome.py" />
+
+This example shows the core Mirascope patterns:
+
+- **Tools** let the LLM call your functions (traced with `@ops.trace`)
+- **Versioning** with `@ops.version` tracks changes to your prompts and traces automatically
+- **Tracing** on `run_agent` captures the entire agent loop as a nested trace
+
+## What's Next
+
+| Learning Path | Topics |
+| --- | --- |
+| [LLM Quickstart](/docs/quickstart) | Messages, Calls, Tools, Structured Output, Streaming, Agents |
+| [Ops Overview](/docs/learn/ops) | Configuration, Tracing, Sessions, Versioning |
+| [API Reference](/docs/api) | Full API documentation |

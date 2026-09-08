@@ -1,0 +1,136 @@
+---
+title: Reliability
+description: Learn how to build robust LLM applications with automatic retries, exponential backoff, and provider fallbacks.
+---
+
+# Reliability
+
+LLM API calls can fail for many reasons: rate limits, server errors, network issues, or timeouts. Mirascope provides built-in retry logic with exponential backoff and fallback models to handle these failures gracefully.
+
+## Basic Usage
+
+Use the `@llm.retry` decorator, or `llm.retry_model`, to add automatic retry logic to your calls and prompts:
+
+<TabbedSection>
+<Tab value="Call">
+<CodeExample file="python/examples/reliability/basic_call.py" />
+</Tab>
+<Tab value="Prompt">
+<CodeExample file="python/examples/reliability/basic_prompt.py" />
+</Tab>
+<Tab value="Model">
+<CodeExample file="python/examples/reliability/basic_model.py" />
+</Tab>
+</TabbedSection>
+
+In each of the above examples, if the provider emits a transient error, Mirascope will automatically retry the request.
+
+By default, `@llm.retry` and `llm.retry_model()`:
+- Retry up to 3 times after the initial attempt fails
+- Use exponential backoff starting at 0.5 seconds
+- Retry on `ConnectionError`, `RateLimitError`, `ServerError`, and `TimeoutError`
+
+The response is a `RetryResponse` (or `RetryStreamResponse` for streaming), which inherits from the standard response types but includes retry metadata.
+
+## Fallback Models
+
+Specify fallback models to try if the primary model fails. Each model gets its own full retry budget:
+
+<TabbedSection>
+<Tab value="Call">
+<CodeExample file="python/examples/reliability/fallback_call.py" />
+</Tab>
+<Tab value="Prompt">
+<CodeExample file="python/examples/reliability/fallback_prompt.py" />
+</Tab>
+<Tab value="Model">
+<CodeExample file="python/examples/reliability/fallback_model.py" />
+</Tab>
+</TabbedSection>
+
+When a fallback model succeeds, `response.resume()` will continue using that model. This preserves provider-specific benefits like cached context and reasoning traces.
+
+<Note>
+Fallback model IDs inherit parameters (temperature, max_tokens, etc.) from the primary model. Pass `llm.Model` instances instead of strings if you need different parameters per model.
+</Note>
+
+## Configuring Retry Behavior
+
+Customize the retry behavior with these options:
+
+<CodeExample file="python/examples/reliability/retry_config.py" />
+
+### Configuration Options
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `max_retries` | `3` | Maximum retry attempts after the initial failure |
+| `initial_delay` | `0.5` | Seconds to wait before the first retry |
+| `max_delay` | `60.0` | Maximum delay between retries |
+| `backoff_multiplier` | `2.0` | Multiply delay by this after each retry |
+| `jitter` | `0.0` | Random variation (0.0–1.0) to prevent thundering herd |
+| `retry_on` | See below | Tuple of exception types that trigger retries |
+| `fallback_models` | `()` | Models (via `ModelId` or `Model`) to use, in order, if the primary model fails |
+
+The default `retry_on` errors are transient failures that typically succeed on retry:
+- `llm.ConnectionError` — Network issues, DNS failures
+- `llm.RateLimitError` — Rate limits exceeded (429)
+- `llm.ServerError` — Provider-side errors (500+)
+- `llm.TimeoutError` — Request timeouts
+
+See [Errors](/docs/learn/llm/errors) for the full exception hierarchy.
+
+## Streaming with Retries
+
+When streaming, retries work differently. If an error occurs mid-stream, the response raises `StreamRestarted` to signal that the stream has been reset. Catch this exception and re-iterate to continue:
+
+<CodeExample file="python/examples/reliability/stream_restart.py" />
+
+The `StreamRestarted` exception gives you an opportunity to handle the restart (e.g., clear previous output) before the stream resumes from the beginning.
+
+### Continuing Instead of Restarting
+
+If you want to continue a stream from where it left off rather than restarting, use `response.resume()` manually. This tells the model what content it already generated, so it can pick up where it stopped:
+
+<CodeExample file="python/examples/reliability/stream_resume.py" />
+
+This approach uses `response.resume()` which includes the accumulated content from `response.messages`, giving the model context about what it already said.
+
+## Handling RetriesExhausted
+
+When all retry attempts fail (including fallback models), Mirascope raises `RetriesExhausted`. This exception contains details about each failed attempt:
+
+<CodeExample file="python/examples/reliability/retries_exhausted.py" />
+
+Each `RetryFailure` in `e.failures` contains:
+- `model` — The model that was tried
+- `exception` — The exception that was raised
+
+## Retry Metadata
+
+Retry responses track failed attempts in the `retry_failures` property:
+
+```python
+response = recommend_book("fantasy")
+
+if response.retry_failures:
+    print(f"Succeeded after {len(response.retry_failures)} failed attempts")
+    for failure in response.retry_failures:
+        print(f"  {failure.model.model_id}: {failure.exception}")
+```
+
+If the first attempt succeeds, `retry_failures` is an empty list.
+
+## Related Topics
+
+For retrying on structured output validation errors, use `response.validate()` which automatically retries when parsing fails. Note that when calling `validate()` on a `RetryResponse`, it will use retry logic when needed.
+
+See [Structured Output](/docs/learn/llm/structured-output#automatic-retry-with-validate).
+
+For handling tool execution errors, see [Tools](/docs/learn/llm/tools). Mirascope automatically captures tool errors and passes them to the LLM so it can adapt.
+
+## Next Steps
+
+- [Errors](/docs/learn/llm/errors) — Unified error types across providers
+- [Streaming](/docs/learn/llm/streaming) — Streaming patterns in depth
+- [Structured Output](/docs/learn/llm/structured-output) — Validation and parsing

@@ -1,0 +1,79 @@
+---
+title: Configuration
+description: Configure the ops module to send traces to any OpenTelemetry-compatible backend.
+---
+
+# Configuration
+
+Before using tracing features, you need to configure where traces are sent. The ops module is built on OpenTelemetry, so you can export traces to any OTEL-compatible backend.
+
+## Quick Start
+
+To get started, create a `TracerProvider` with your preferred exporter and pass it to `ops.configure()`:
+
+<CodeExample file="python/examples/ops/configure_basic.py" />
+
+## Recommended Backends
+
+The ops module works with any OpenTelemetry-compatible observability platform. Here are some popular options:
+
+### Langfuse
+
+[Langfuse](https://langfuse.com) is an open-source LLM observability platform with built-in support for OpenTelemetry:
+
+```python
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+
+from mirascope import ops
+
+exporter = OTLPSpanExporter(
+    endpoint="https://cloud.langfuse.com/api/public/otel/v1/traces",
+    headers={
+        "Authorization": "Bearer your-langfuse-public-key",
+        "X-Langfuse-Secret-Key": "your-langfuse-secret-key",
+    },
+)
+provider = TracerProvider()
+provider.add_span_processor(BatchSpanProcessor(exporter))
+
+ops.configure(tracer_provider=provider)
+```
+
+### OTLP Exporter
+
+Export to any OpenTelemetry collector (Jaeger, Zipkin, Grafana Tempo, Datadog, etc.):
+
+<CodeExample file="python/examples/ops/configure_otlp.py" />
+
+### Console Exporter (Development)
+
+For local development and debugging, output traces to the console:
+
+<CodeExample file="python/examples/ops/configure_basic.py" />
+
+## Configuration Options
+
+The `ops.configure()` function accepts:
+
+| Parameter | Description |
+| --- | --- |
+| `tracer_provider` | A `TracerProvider` instance (required) |
+| `tracer_name` | Name for the tracer (default: `"mirascope.llm"`) |
+| `tracer_version` | Optional version string for the tracer |
+
+## Propagator Configuration
+
+The context propagation format can be configured via environment variable:
+
+| Variable | Description | Default |
+| --- | --- | --- |
+| `MIRASCOPE_PROPAGATOR` | Propagation format: `tracecontext`, `b3`, `b3multi`, `jaeger`, or `composite` | `tracecontext` |
+
+See [Context Propagation](/docs/ops/context-propagation) for more details on distributed tracing.
+
+## Next Steps
+
+- [Tracing](/docs/ops/tracing) — Start tracing your functions
+- [LLM Instrumentation](/docs/ops/instrumentation) — Automatically trace LLM calls

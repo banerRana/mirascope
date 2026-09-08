@@ -1,0 +1,42 @@
+{
+  "name": "mirascope-monorepo",
+  "version": "2.5.0",
+  "private": true,
+  "scripts": {
+    "website:dev": "cd website && bun i && bun run dev",
+    "typecheck": "bun run typecheck:typescript && bun run typecheck:python && bun run typecheck:website",
+    "typecheck:python": "cd python && uv run pyright .",
+    "typecheck:typescript": "bun run --cwd typescript typecheck",
+    "typecheck:website": "bun run --cwd website typecheck",
+    "test:python": "cd python && uv run pytest tests/",
+    "test:website": "cd website && bun run test",
+    "coverage:python": "cd python && uv run pytest --cov --cov-config=.coveragerc --cov-report=term-missing",
+    "codespell": "uvx codespell --config .codespellrc",
+    "ci": "bun run lint && bun run coverage:python",
+    "lint": "bun run codespell && bun run lint:python && bun run lint:typescript && bun run lint:website",
+    "lint:python": "cd python && uv sync --all-extras --dev && uv run ruff check . && uv run pyright .",
+    "lint:typescript": "cd typescript && bun i && bun run lint",
+    "lint:website": "cd website && bun i && bun run lint",
+    "fix": "bun run fix:python && bun run fix:typescript && bun run fix:website",
+    "fix:python": "cd python && bun run scripts/regenerate_examples.ts && uv run ruff check --fix . && uv run ruff format .",
+    "generate:python-sdk:gen-ai-types": "cd python && uv run datamodel-codegen --input schemas/gen-ai --output mirascope/ops/_internal/instrumentation/llm/gen_ai_types",
+    "fix:typescript": "cd typescript && bun i && bun run fix",
+    "fix:website": "cd website && bun i && bun run fix",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "website/**/*.{ts,tsx}": [
+      "bun website/lint-staged.ts"
+    ],
+    "typescript/**/*.{ts,tsx}": [
+      "bun typescript/lint-staged.ts"
+    ],
+    "python/**/*.py": [
+      "bun python/lint-staged.ts"
+    ]
+  },
+  "devDependencies": {
+    "husky": "^9.1.7",
+    "lint-staged": "^16.1.2"
+  }
+}
